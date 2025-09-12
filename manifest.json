@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "description": "Simple FACEIT player stats",
   "permissions": ["activeTab"],
+  "host_permissions": [
+    "http://localhost:5000/*"
+  ],
   "content_scripts": [
     {
       "matches": ["https://www.faceit.com/*"],
