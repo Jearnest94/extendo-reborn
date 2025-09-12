@@ -1,13 +1,13 @@
 # Extendo Reborn - The Minimal Version
 
 ## What This Is
-4 files. 200 lines total. Does ONE thing: Shows FACEIT player stats in match rooms.
+4 files. 412 lines total. Does ONE thing: Shows FACEIT player stats in match rooms.
 
 ## Files
-- `api.py` - Flask API (80 lines)
-- `content.js` - Chrome extension logic (120 lines) 
-- `manifest.json` - Extension config (10 lines)
-- `style.css` - Basic styling (100 lines)
+- `api.py` - Flask API with caching (113 lines)
+- `content.js` - Chrome extension logic (169 lines) 
+- `manifest.json` - Extension config (14 lines)
+- `style.css` - Basic styling (116 lines)
 
 ## Setup
 
@@ -23,6 +23,7 @@ python api.py
 1. Open Chrome → Extensions → Developer mode
 2. "Load unpacked" → Select `extendo-reborn` folder
 3. Visit a FACEIT match room
+4. Extension auto-detects and shows player stats
 
 ## What It Does
 1. ✅ Detects FACEIT match rooms automatically
