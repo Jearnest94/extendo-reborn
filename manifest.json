@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Extendo Reborn",
+  "version": "1.0.0",
+  "description": "Simple FACEIT player stats",
+  "permissions": ["activeTab"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.faceit.com/*"],
+      "js": ["content.js"],
+      "css": ["style.css"]
+    }
+  ]
+}

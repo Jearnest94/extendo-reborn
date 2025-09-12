@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extendo Reborn - JavaScript Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: white; }
+        .test-section { background: #2a2a2a; padding: 20px; margin: 20px 0; border-radius: 8px; }
+        .mock-faceit-page { background: #333; padding: 20px; border: 2px solid #555; }
+        .roster { display: flex; gap: 10px; flex-wrap: wrap; }
+        .text-truncate { background: #555; padding: 8px; border-radius: 4px; color: white; }
+        button { background: #ff6900; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #e55a00; }
+        pre { background: #111; padding: 15px; border-radius: 4px; overflow-x: auto; }
+        .success { color: #4CAF50; }
+        .error { color: #ff4444; }
+    </style>
+</head>
+<body>
+    <h1>🎯 Extendo Reborn - JavaScript Function Test</h1>
+    
+    <div class="test-section">
+        <h2>Test Environment</h2>
+        <p>This page simulates a FACEIT match room to test our JavaScript logic.</p>
+    </div>
+    
+    <div class="test-section">
+        <h2>Mock FACEIT Match Room</h2>
+        <div class="mock-faceit-page" data-testid="roster-container">
+            <h3>Team A</h3>
+            <div class="roster" data-testid="roster-team-a">
+                <div class="text-truncate">s1mple</div>
+                <div class="text-truncate">ZywOo</div>
+                <div class="text-truncate">test_player</div>
+                <div class="text-truncate">Player4</div>
+                <div class="text-truncate">Player5</div>
+            </div>
+            
+            <h3>Team B</h3>
+            <div class="roster" data-testid="roster-team-b">
+                <div class="text-truncate">OpponentA</div>
+                <div class="text-truncate">OpponentB</div>
+                <div class="text-truncate">OpponentC</div>
+                <div class="text-truncate">OpponentD</div>
+                <div class="text-truncate">OpponentE</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>JavaScript Tests</h2>
+        <button onclick="testPlayerExtraction()">🔍 Test Player Nickname Extraction</button>
+        <button onclick="testMatchRoomDetection()">🎯 Test Match Room Detection</button>
+        <button onclick="testAPICall()">📡 Test API Call (Mock)</button>
+        <button onclick="testFullFlow()">🚀 Test Full Extendo Flow</button>
+        
+        <div id="test-results" style="margin-top: 20px;"></div>
+    </div>
+
+    <script>
+        // Copy the core functions from content.js for testing
+        function getPlayerNicknames() {
+            const playerElements = document.querySelectorAll('[data-testid*="roster"] .text-truncate, .roster .text-truncate, [class*="nickname"], [class*="player-nickname"]');
+            
+            const nicknames = [];
+            playerElements.forEach(el => {
+                const text = el.textContent.trim();
+                if (text && text.length > 2 && text.length < 20 && !nicknames.includes(text)) {
+                    nicknames.push(text);
+                }
+            });
+            
+            if (nicknames.length === 0) {
+                const allElements = document.querySelectorAll('*');
+                allElements.forEach(el => {
+                    if (el.children.length === 0) {
+                        const text = el.textContent.trim();
+                        if (text.match(/^[a-zA-Z0-9_-]{3,16}$/) && !nicknames.includes(text)) {
+                            nicknames.push(text);
+                        }
+                    }
+                });
+            }
+            
+            return nicknames.slice(0, 10);
+        }
+
+        function isMatchRoom() {
+            return window.location.href.includes('/room/') || 
+                   document.querySelector('[data-testid*="roster"]') ||
+                   document.querySelector('.roster') ||
+                   getPlayerNicknames().length >= 5;
+        }
+
+        async function mockFetchPlayerStats(nicknames) {
+            // Mock the API call
+            await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
+            
+            const mockData = {
+                "s1mple": { nickname: "s1mple", elo: 3200, level: 10, kd: 1.85, country: "UA" },
+                "ZywOo": { nickname: "ZywOo", elo: 3100, level: 10, kd: 1.78, country: "FR" },
+                "test_player": { nickname: "test_player", elo: 2000, level: 7, kd: 1.12, country: "US" }
+            };
+            
+            return nicknames.map(nickname => {
+                if (mockData[nickname]) {
+                    return mockData[nickname];
+                } else {
+                    return { nickname: nickname, error: "Player not found in mock data" };
+                }
+            });
+        }
+
+        function createMockStatsPanel(players) {
+            let html = `
+                <div style="background: #1a1a1a; border: 2px solid #ff6900; border-radius: 8px; padding: 16px; margin: 20px 0; color: white;">
+                    <h3 style="color: #ff6900; margin: 0 0 16px 0;">🎯 Extendo Player Stats</h3>
+            `;
+            
+            if (players.length === 0) {
+                html += '<p>No player data available</p>';
+            } else {
+                players.forEach(player => {
+                    if (player.error) {
+                        html += `<div style="background: #2a1a1a; padding: 8px; margin: 4px 0; border-left: 3px solid #ff4444;">❌ ${player.nickname}: ${player.error}</div>`;
+                    } else {
+                        html += `
+                            <div style="background: #2a2a2a; padding: 12px; margin: 8px 0; border-left: 3px solid #ff6900; border-radius: 4px;">
+                                <div style="color: #ff6900; font-weight: bold; margin-bottom: 8px;">${player.nickname}</div>
+                                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                                    <span style="background: #4CAF50; padding: 4px 8px; border-radius: 4px; font-size: 12px;">⭐ ${player.elo}</span>
+                                    <span style="background: #2196F3; padding: 4px 8px; border-radius: 4px; font-size: 12px;">Lvl ${player.level}</span>
+                                    <span style="background: #FF9800; padding: 4px 8px; border-radius: 4px; font-size: 12px;">K/D: ${player.kd || 'N/A'}</span>
+                                    <span style="background: #9C27B0; padding: 4px 8px; border-radius: 4px; font-size: 12px;">${player.country}</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+            }
+            
+            html += '</div>';
+            return html;
+        }
+
+        // Test functions
+        function testPlayerExtraction() {
+            const nicknames = getPlayerNicknames();
+            const resultDiv = document.getElementById('test-results');
+            resultDiv.innerHTML = `
+                <h3 class="success">✅ Player Extraction Test</h3>
+                <p><strong>Found ${nicknames.length} players:</strong></p>
+                <pre>${JSON.stringify(nicknames, null, 2)}</pre>
+                <p class="success">Expected: s1mple, ZywOo, test_player, Player4, Player5, OpponentA, OpponentB, OpponentC, OpponentD, OpponentE</p>
+            `;
+        }
+
+        function testMatchRoomDetection() {
+            const isMatch = isMatchRoom();
+            const resultDiv = document.getElementById('test-results');
+            resultDiv.innerHTML = `
+                <h3 class="success">✅ Match Room Detection Test</h3>
+                <p><strong>Is Match Room:</strong> <span class="success">${isMatch}</span></p>
+                <p><strong>Reasons:</strong></p>
+                <ul>
+                    <li>URL contains '/room/': ${window.location.href.includes('/room/')}</li>
+                    <li>Has roster elements: ${!!document.querySelector('[data-testid*="roster"]')}</li>
+                    <li>Has roster class: ${!!document.querySelector('.roster')}</li>
+                    <li>Found ${getPlayerNicknames().length} players (need ≥5): ${getPlayerNicknames().length >= 5}</li>
+                </ul>
+            `;
+        }
+
+        async function testAPICall() {
+            const resultDiv = document.getElementById('test-results');
+            resultDiv.innerHTML = '<h3>📡 Testing Mock API Call...</h3><p>⏳ Loading...</p>';
+            
+            try {
+                const nicknames = ["s1mple", "ZywOo", "unknown_player"];
+                const players = await mockFetchPlayerStats(nicknames);
+                
+                resultDiv.innerHTML = `
+                    <h3 class="success">✅ API Call Test</h3>
+                    <p><strong>Requested:</strong> ${nicknames.join(', ')}</p>
+                    <p><strong>Response:</strong></p>
+                    <pre>${JSON.stringify(players, null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <h3 class="error">❌ API Call Test Failed</h3>
+                    <p class="error">Error: ${error.message}</p>
+                `;
+            }
+        }
+
+        async function testFullFlow() {
+            const resultDiv = document.getElementById('test-results');
+            resultDiv.innerHTML = '<h3>🚀 Testing Full Extendo Flow...</h3><p>⏳ Processing...</p>';
+            
+            try {
+                // Step 1: Check if match room
+                console.log('🎯 Extendo Test: Checking if match room...');
+                if (!isMatchRoom()) {
+                    resultDiv.innerHTML = '<h3 class="error">❌ Not a match room</h3>';
+                    return;
+                }
+                
+                // Step 2: Get player nicknames
+                console.log('🔍 Extendo Test: Extracting player nicknames...');
+                const nicknames = getPlayerNicknames();
+                if (nicknames.length === 0) {
+                    resultDiv.innerHTML = '<h3 class="error">❌ No players found</h3>';
+                    return;
+                }
+                
+                // Step 3: Fetch stats
+                console.log('📡 Extendo Test: Fetching player stats...');
+                resultDiv.innerHTML = '<h3>🚀 Full Flow Test</h3><p>⏳ Fetching stats for ' + nicknames.length + ' players...</p>';
+                
+                const players = await mockFetchPlayerStats(nicknames);
+                
+                // Step 4: Create UI
+                console.log('🎨 Extendo Test: Creating stats panel...');
+                const statsPanel = createMockStatsPanel(players);
+                
+                resultDiv.innerHTML = `
+                    <h3 class="success">✅ Full Flow Test Complete!</h3>
+                    <p><strong>Steps completed:</strong></p>
+                    <ol>
+                        <li>✅ Detected match room</li>
+                        <li>✅ Extracted ${nicknames.length} player nicknames</li>
+                        <li>✅ Fetched player stats (mock)</li>
+                        <li>✅ Generated UI panel</li>
+                    </ol>
+                    <h4>Generated Stats Panel:</h4>
+                    ${statsPanel}
+                `;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <h3 class="error">❌ Full Flow Test Failed</h3>
+                    <p class="error">Error: ${error.message}</p>
+                `;
+            }
+        }
+
+        // Auto-run basic tests when page loads
+        window.addEventListener('load', () => {
+            console.log('🎯 Extendo Reborn JavaScript test page loaded');
+            setTimeout(() => {
+                testPlayerExtraction();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

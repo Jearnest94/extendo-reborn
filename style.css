@@ -1,0 +1,116 @@
+/* Extendo Reborn - Minimal, clean styling */
+
+.extendo-panel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 350px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: #1a1a1a;
+  border: 2px solid #ff6900;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  z-index: 999999;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: white;
+}
+
+.extendo-header {
+  background: #ff6900;
+  color: white;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.extendo-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.extendo-close {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.extendo-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.extendo-content {
+  padding: 16px;
+}
+
+.player-card {
+  background: #2a2a2a;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 8px;
+  border-left: 3px solid #ff6900;
+}
+
+.player-card.error {
+  border-left-color: #ff4444;
+  background: #2a1a1a;
+}
+
+.player-name {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: #ff6900;
+}
+
+.player-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.player-stats span {
+  background: #3a3a3a;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.elo {
+  background: #4CAF50 !important;
+}
+
+.level {
+  background: #2196F3 !important;
+}
+
+.kd {
+  background: #FF9800 !important;
+}
+
+.winrate {
+  background: #9C27B0 !important;
+}
+
+.loading {
+  text-align: center;
+  padding: 20px;
+  color: #999;
+}
+
+/* Make sure we don't interfere with FACEIT's styles */
+.extendo-panel * {
+  box-sizing: border-box;
+}
