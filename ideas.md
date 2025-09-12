@@ -1,0 +1,3 @@
+- Strongest map the last xxx/yyy???
+- Position on map x/y?
+- These two(THREE/FOUR) players PLAY THE SAME POSITION on THAT SPECIFIC MAP!

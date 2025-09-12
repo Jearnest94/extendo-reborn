@@ -9,6 +9,9 @@ import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from functools import lru_cache
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class FaceitAPI:
@@ -17,8 +20,30 @@ class FaceitAPI:
         if not self.api_key:
             raise ValueError("FACEIT_API_KEY required")
         
+        # Open Data API session
         self.session = requests.Session()
-        self.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
+        self.session.headers.update({
+            "Authorization": f"Bearer {self.api_key}",
+            "Accept": "application/json"
+        })
+
+    def _parse_response(self, resp):
+        """Return (ok, data). On error, include auth_error if token invalid."""
+        if resp.status_code == 200:
+            try:
+                return True, resp.json()
+            except Exception:
+                return True, {}
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"message": resp.text}
+        auth_err = (
+            resp.status_code in (401, 403)
+            or (isinstance(data, dict) and data.get("error") == "invalid_token")
+        )
+        err_msg = data.get("message") or data.get("error_description") or data.get("error") or resp.text
+        return False, {"status": resp.status_code, "auth_error": auth_err, "error": err_msg}
     
     @lru_cache(maxsize=512)
     def get_player(self, nickname):
@@ -29,8 +54,10 @@ class FaceitAPI:
                 params={"nickname": nickname},
                 timeout=5
             )
-            resp.raise_for_status()
-            return resp.json()
+            ok, data = self._parse_response(resp)
+            if ok:
+                return data
+            return {"error": f"FACEIT Data API {data.get('status')}: {data.get('error')}", "auth": data.get("auth_error", False)}
         except Exception as e:
             return {"error": str(e)}
     
@@ -42,8 +69,197 @@ class FaceitAPI:
                 f"https://open.faceit.com/data/v4/players/{player_id}/stats/cs2",
                 timeout=5
             )
-            resp.raise_for_status()
-            return resp.json()
+            ok, data = self._parse_response(resp)
+            if ok:
+                return data
+            return {"error": f"FACEIT Data API {data.get('status')}: {data.get('error')}", "auth": data.get("auth_error", False)}
+        except Exception as e:
+            return {"error": str(e)}
+
+    @lru_cache(maxsize=1024)
+    def get_player_matches_stats_list(self, player_id: str, *, game_id: str = "cs2", offset: int = 0, limit: int = 100, from_ms: int | None = None, to_ms: int | None = None):
+        """
+        Call Data API: GET /players/{player_id}/games/{game_id}/stats
+        Returns a dict { 'items': [...], 'start': n, 'end': m }
+
+        Notes per official docs:
+        - Endpoint supports pagination via 'offset' and 'limit'.
+        - Response items include per-match player_stats keys which are game-defined (not enumerated);
+          for CS2 these typically include 'ADR'.
+        """
+        try:
+            params = {"offset": offset, "limit": limit}
+            resp = self.session.get(
+                f"https://open.faceit.com/data/v4/players/{player_id}/games/{game_id}/stats",
+                params=params,
+                timeout=8,
+            )
+            ok, data = self._parse_response(resp)
+            if ok:
+                # Ensure shape
+                if not isinstance(data, dict):
+                    return {"items": [], "start": 0, "end": 0}
+                data.setdefault("items", [])
+                data.setdefault("start", offset)
+                data.setdefault("end", offset + len(data["items"]))
+                return data
+            return {"error": f"FACEIT Data API {data.get('status')}: {data.get('error')}", "auth": data.get("auth_error", False)}
+        except Exception as e:
+            return {"error": str(e)}
+
+    @lru_cache(maxsize=1024)
+    def get_player_history(self, player_id: str, *, game_id: str = "cs2", offset: int = 0, limit: int = 100, from_ms: int | None = None, to_ms: int | None = None):
+        """
+        Call Data API: GET /players/{player_id}/history
+        Query params: game (required), from/to (epoch ms, optional), offset, limit
+        Returns a dict { 'items': [...], 'start': n, 'end': m }
+        Each item includes fields like 'match_id', 'finished_at' (epoch ms), etc.
+        """
+        try:
+            params = {"game": game_id, "offset": offset, "limit": limit}
+            if from_ms is not None:
+                params["from"] = int(from_ms)
+            if to_ms is not None:
+                params["to"] = int(to_ms)
+            resp = self.session.get(
+                f"https://open.faceit.com/data/v4/players/{player_id}/history",
+                params=params,
+                timeout=8,
+            )
+            ok, data = self._parse_response(resp)
+            if ok:
+                if not isinstance(data, dict):
+                    return {"items": [], "start": 0, "end": 0}
+                data.setdefault("items", [])
+                data.setdefault("start", offset)
+                # Many list endpoints also return 'end' in body; if not, synthesize it
+                data.setdefault("end", offset + len(data["items"]))
+                return data
+            return {"error": f"FACEIT Data API {data.get('status')}: {data.get('error')}", "auth": data.get("auth_error", False)}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _avg_adr_from_items(self, items: list[dict], n: int) -> float | None:
+        """
+        Compute average ADR from the most recent n matches in items.
+        Items are expected to be in descending recency. When timestamps are present as stats fields,
+        we sort by them; otherwise we assume the API returns newest-first.
+        """
+        try:
+            # Extract (timestamp, ADR)
+            pairs = []
+            for it in items:
+                s = it.get("stats", {}) if isinstance(it, dict) else {}
+                adr_s = s.get("ADR")
+                # Prefer explicit timestamp if exposed in stats; fall back to None
+                ts = s.get("Match Finished At") or s.get("Match Finished At ") or s.get("played")
+                if adr_s is None or ts is None:
+                    # If no timestamp in stats, still consider ADR but use a decreasing counter to keep order
+                    try:
+                        adr = float(str(adr_s).replace(",", "."))
+                        pairs.append((None, adr))
+                    except Exception:
+                        continue
+                    continue
+                try:
+                    adr = float(str(adr_s).replace(",", "."))
+                    tsi = int(ts)
+                    pairs.append((tsi, adr))
+                except Exception:
+                    continue
+            if not pairs:
+                return None
+            # If timestamps exist, sort by ts desc; otherwise keep input order
+            if any(p[0] is not None for p in pairs):
+                pairs = [p for p in pairs if p[0] is not None]
+                pairs.sort(key=lambda x: x[0], reverse=True)
+            slice_vals = [adr for _, adr in pairs[:n]]
+            if not slice_vals:
+                return None
+            return sum(slice_vals) / len(slice_vals)
+        except Exception:
+            return None
+
+    def _nth_match_date_from_history(self, items: list[dict], n: int) -> int | None:
+        """Return epoch ms for the Nth most recent match using /players/{player_id}/history items."""
+        try:
+            stamps = []
+            for it in items:
+                ts = None
+                if isinstance(it, dict):
+                    ts = it.get("finished_at") or it.get("ended_at") or it.get("started_at")
+                if ts is None:
+                    continue
+                try:
+                    stamps.append(int(ts))
+                except Exception:
+                    continue
+            if not stamps:
+                return None
+            stamps.sort(reverse=True)
+            if len(stamps) < n:
+                return stamps[-1]
+            return stamps[n - 1]
+        except Exception:
+            return None
+
+    def count_matches_in_window(self, player_id: str, *, days: int, game_id: str = "cs2") -> int:
+        """
+        Count matches within the last `days` days using the documented player history endpoint
+        with from/to time filters. Paginates until all matches are counted or no more results.
+        """
+        try:
+            import time
+            now_ms = int(time.time() * 1000)
+            from_ms = now_ms - days * 24 * 60 * 60 * 1000
+            total = 0
+            offset = 0
+            limit = 100
+            while True:
+                page = self.get_player_history(player_id, game_id=game_id, offset=offset, limit=limit, from_ms=from_ms, to_ms=now_ms)
+                if "error" in page:
+                    # On error, break to avoid infinite loop
+                    break
+                items = page.get("items", [])
+                total += len(items)
+                if len(items) < limit:
+                    break
+                offset += limit
+            return total
+        except Exception:
+            return 0
+    
+    @lru_cache(maxsize=512)
+    def get_match(self, match_id):
+        """Get match details from FACEIT Data API (v4): /matches/{match_id}.
+        Note: This requires a valid match_id known to the Data API. "room" IDs
+        that are not yet matches will not be available here.
+        """
+        try:
+            resp = self.session.get(
+                f"https://open.faceit.com/data/v4/matches/{match_id}",
+                timeout=5,
+            )
+            ok, data = self._parse_response(resp)
+            if ok:
+                return {"source": "matches", **data}
+            if data.get("auth_error"):
+                return {"error": f"FACEIT Data API {data.get('status')}: {data.get('error')}", "auth": True}
+            # If not found or not yet promoted, attempt documented matchmaking endpoint
+            mm_resp = self.session.get(
+                f"https://open.faceit.com/data/v4/matchmakings/{match_id}",
+                timeout=5,
+            )
+            mm_ok, mm_data = self._parse_response(mm_resp)
+            if mm_ok:
+                return {"source": "matchmakings", **mm_data}
+            if mm_data.get("auth_error"):
+                return {"error": f"FACEIT Data API {mm_data.get('status')}: {mm_data.get('error')}", "auth": True}
+            # Propagate a concise error consistent with Data API responses
+            return {"error": (
+                f"FACEIT Data API matches {data.get('status')}: {data.get('error')}; "
+                f"matchmakings {mm_data.get('status')}: {mm_data.get('error')}"
+            )}
         except Exception as e:
             return {"error": str(e)}
 
@@ -51,6 +267,80 @@ class FaceitAPI:
 app = Flask(__name__)
 CORS(app)
 faceit = FaceitAPI()
+
+
+@app.route("/match/<match_id>/players", methods=["GET"])
+def get_match_players(match_id):
+    """
+    GET /match/{match_id}/players
+    Returns: {"nicknames": ["player1", "player2", ...], "teams": {...}}
+    """
+    match_data = faceit.get_match(match_id)
+    
+    if "error" in match_data:
+        status = 401 if match_data.get("auth") else 400
+        return {"error": match_data["error"], "auth": match_data.get("auth", False)}, status
+    
+    # Extract player nicknames from match data (support multiple schemas)
+    nicknames = []
+    teams = {"team1": {"name": "", "players": []}, "team2": {"name": "", "players": []}}
+
+    try:
+        data = match_data.get("payload", match_data)
+
+        def add_team(idx, name, roster_list):
+            key = "team1" if idx == 0 else "team2"
+            tplayers = []
+            for p in roster_list:
+                # Support different player key names
+                nickname = p.get("nickname") or p.get("nick") or p.get("name") or ""
+                pid = p.get("player_id") or p.get("id") or p.get("guid") or ""
+                avatar = p.get("avatar") or p.get("picture") or ""
+                if nickname:
+                    if nickname not in nicknames:
+                        nicknames.append(nickname)
+                    tplayers.append({"nickname": nickname, "player_id": pid, "avatar": avatar})
+            teams[key] = {"name": name or key, "players": tplayers}
+
+        # Case A: Open Data API style { teams: { faction1: {...}, faction2: {...} } }
+        if isinstance(data.get("teams"), dict):
+            ordered = []
+            for key in ("faction1", "faction2"):
+                if key in data["teams"]:
+                    ordered.append(data["teams"][key])
+            if not ordered:
+                # any dict values
+                ordered = list(data["teams"].values())
+            for i, t in enumerate(ordered[:2]):
+                roster = t.get("roster") or t.get("players") or []
+                add_team(i, t.get("name", ""), roster)
+
+        # Case B: Alternative list format { teams: [ { name, roster:[...] }, { ... } ] }
+        elif isinstance(data.get("teams"), list):
+            for i, t in enumerate(data["teams"][:2]):
+                roster = t.get("roster") or t.get("players") or []
+                add_team(i, t.get("name", ""), roster)
+
+        # Case C: Nested under data.match or data.room etc.
+        elif isinstance(data.get("match"), dict) and isinstance(data["match"].get("teams"), list):
+            for i, t in enumerate(data["match"]["teams"][:2]):
+                roster = t.get("roster") or t.get("players") or []
+                add_team(i, t.get("name", ""), roster)
+
+        result = {
+            "nicknames": nicknames,
+            "teams": teams,
+            "match_id": match_id,
+            "status": data.get("status") or data.get("state") or "unknown",
+        }
+
+        if not nicknames:
+            # Provide more context to the caller instead of a silent empty list
+            result["warning"] = "No players found in match data"
+        return result
+
+    except Exception as e:
+        return {"error": f"Failed to parse match data: {str(e)}"}, 500
 
 
 @app.route("/players", methods=["POST"])
@@ -98,6 +388,52 @@ def get_players():
                     "hs_percent": float(stats_data.get("Headshots %", 0)),
                     "avg_kills": float(stats_data.get("Average Kills per Round", 0))
                 })
+
+        # Enrich with ADR last 10/30/100 and dates for nth matches using per-match stats endpoint
+        try:
+            recent_100 = faceit.get_player_matches_stats_list(player_id=result["player_id"], game_id="cs2", offset=0, limit=100)
+            if "error" not in recent_100:
+                items = recent_100.get("items", [])
+                adr10 = faceit._avg_adr_from_items(items, 10)
+                adr30 = faceit._avg_adr_from_items(items, 30)
+                adr100 = faceit._avg_adr_from_items(items, 100)
+                if adr10 is not None:
+                    result["adr_last_10"] = round(adr10, 2)
+                if adr30 is not None:
+                    result["adr_last_30"] = round(adr30, 2)
+                if adr100 is not None:
+                    result["adr_last_100"] = round(adr100, 2)
+            # Derive the Nth match dates from the authoritative history endpoint
+            history_100 = faceit.get_player_history(player_id=result["player_id"], game_id="cs2", offset=0, limit=100)
+            if "error" not in history_100:
+                hitems = history_100.get("items", [])
+                d10 = faceit._nth_match_date_from_history(hitems, 10)
+                d30 = faceit._nth_match_date_from_history(hitems, 30)
+                d100 = faceit._nth_match_date_from_history(hitems, 100)
+                # Convert ms epoch to ISO date (YYYY-MM-DD)
+                import datetime as _dt
+                def _to_date(ms):
+                    try:
+                        return _dt.datetime.utcfromtimestamp(ms/1000).strftime('%Y-%m-%d') if ms else None
+                    except Exception:
+                        return None
+                result["date_10_games_ago"] = _to_date(d10)
+                result["date_30_games_ago"] = _to_date(d30)
+                result["date_100_games_ago"] = _to_date(d100)
+        except Exception:
+            # Non-fatal: keep minimal result
+            pass
+
+        # Games per day for last 7/30/90 days using time-bounded stats list counts
+        try:
+            c7 = faceit.count_matches_in_window(result["player_id"], days=7)
+            c30 = faceit.count_matches_in_window(result["player_id"], days=30)
+            c90 = faceit.count_matches_in_window(result["player_id"], days=90)
+            result["games_per_day_7d"] = round(c7 / 7.0, 2)
+            result["games_per_day_30d"] = round(c30 / 30.0, 2)
+            result["games_per_day_90d"] = round(c90 / 90.0, 2)
+        except Exception:
+            pass
         
         results.append(result)
     
