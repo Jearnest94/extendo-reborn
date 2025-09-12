@@ -1,0 +1,11 @@
+{
+  "status": 500,
+  "body": {
+    "errors": [
+      {
+        "code": "err_g0",
+        "message": "An unexpected error occurred. Please try again later."
+      }
+    ]
+  }
+}
