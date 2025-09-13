@@ -41,13 +41,17 @@ python api.py
 - ❌ No Docker
 
 ## The Point
-This does 80% of what users need in 5% of the code.
 Build THIS first. Add features later.
 
-## Next Steps (if needed)
-1. Add map-specific win rates
-2. Add player match history
-3. Add better error handling
-4. Add caching with Redis
+## Next Steps
+1. Read https://healeycodes.com/ writeups such as [compressing cs2 demos](https://healeycodes.com/compressing-cs2-demos)
+https://github.com/markus-wa/demoinfocs-golang
+2. Try to make demoparsing really really fast. 
+Because: We don't have a humongous database of ready-parsed player data for every single Faceit player
+And the situation: That from the point in time where we know which Players we want to analyze AND on which Map to analyze them on, we've got ~2-3 minutes to produce results before the knife round has started.
+This means we need to: Download demo(s), +Parse demo(s) *and* Produce actually useful enemy player pattern data (f.e. Plot showing enemy player "Shoguun" plays AWP on this position on CT-Side) 
+4. 
+5. Figure out what data we can produce that actually gives a competetive advantage (This player "ABDI" plays AWP on x position CT-Side)
+6. Add caching with Redis
 
 But only if users actually ask for it.
