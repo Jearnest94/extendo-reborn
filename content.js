@@ -303,97 +303,91 @@ function createStatsPanel(players, teams = null) {
       sorted.forEach(player => {
         if (player.error) {
           html += `<div class=\"player-card error\">X ${player.nickname}: ${player.error}</div>`;
-        } else {
-          const winRate = player.wins && player.matches ? Math.round((player.wins / player.matches) * 100) : 0;
-          const adr10 = player.adr_last_10;
-          const adr30 = player.adr_last_30;
-          const adr100 = player.adr_last_100;
-          const wr10 = player.win_rate_last_10;
-          const wr30 = player.win_rate_last_30;
-          const wr100 = player.win_rate_last_100;
-          const elo10 = player.elo_10_games_ago;
-          const elo30 = player.elo_30_games_ago;
-          const elo100 = player.elo_100_games_ago;
-          const d10 = player.date_10_games_ago || '—';
-          const d30 = player.date_30_games_ago || '—';
-          const d100 = player.date_100_games_ago || '—';
-          const g7 = player.games_per_day_7d;
-          const g30 = player.games_per_day_30d;
-          const g90 = player.games_per_day_90d;
-          const mp = Array.isArray(player.top_maps_played) ? player.top_maps_played.slice(0,7) : [];
-          const bw = Array.isArray(player.top_maps_wr) ? player.top_maps_wr.slice(0,7) : [];
-          const abbr = (name) => {
-            if (!name) return '';
-            const map = String(name);
-            const dict = { 'Ancient': 'Anc.', 'Anubis': 'Anu.', 'Overpass': 'Over.', 'Inferno': 'Inf.', 'Mirage': 'Mir.', 'Vertigo': 'Vert.', 'Nuke': 'Nuke', 'Dust2': 'D2', 'Dust II': 'D2', 'Train': 'Train' };
-            return dict[map] || (map.length > 6 ? map.slice(0,6) + '.' : map);
-          };
-          const wrClass = (wr) => {
-            if (wr == null || isNaN(wr)) return 'wr-unknown';
-            const w = Number(wr);
-            if (w >= 70) return 'wr-great wr-bold';
-            if (w >= 60) return 'wr-good wr-bold';
-            if (w >= 50) return 'wr-mid';
+
+          } else {
+            const winRate = player.wins && player.matches ? Math.round((player.wins / player.matches) * 100) : 0;
+            const adr10 = player.adr_last_10;
+            const adr30 = player.adr_last_30;
+            const adr100 = player.adr_last_100;
+            const wr10 = player.win_rate_last_10;
+            const wr30 = player.win_rate_last_30;
+            const wr100 = player.win_rate_last_100;
+            const elo10 = player.elo_10_games_ago;
+            const elo30 = player.elo_30_games_ago;
+            const elo100 = player.elo_100_games_ago;
+            const d10 = player.date_10_games_ago || '—';
+            const d30 = player.date_30_games_ago || '—';
+            const d100 = player.date_100_games_ago || '—';
+            const g7 = player.games_per_day_7d;
+            const g30 = player.games_per_day_30d;
+            const g90 = player.games_per_day_90d;
+            const mp = Array.isArray(player.top_maps_played) ? player.top_maps_played.slice(0,7) : [];
+            const bw = Array.isArray(player.top_maps_wr) ? player.top_maps_wr.slice(0,7) : [];
+            const abbr = (name) => {
+              if (!name) return '';
+              const map = String(name);
+              const dict = { 'Ancient': 'Anc.', 'Anubis': 'Anu.', 'Overpass': 'Over.', 'Inferno': 'Inf.', 'Mirage': 'Mir.', 'Vertigo': 'Vert.', 'Nuke': 'Nuke', 'Dust2': 'D2', 'Dust II': 'D2', 'Train': 'Train' };
+              return dict[map] || (map.length > 6 ? map.slice(0,6) + '.' : map);
+            };
+            const wrClass = (wr) => {
+              if (wr == null || isNaN(wr)) return 'wr-unknown';
+              const w = Number(wr);
+              if (w >= 70) return 'wr-great wr-bold';
+              if (w >= 60) return 'wr-good wr-bold';
+              if (w >= 50) return 'wr-mid';
+              return 'wr-bad';
+            };
+            const wrByLabel = Object.create(null);
+            for (const m of bw) if (m && m.label != null) wrByLabel[m.label] = Math.round(m.wr);
+            const tokensMP = mp.map(m => {
+              const label = abbr(m.label);
+              const wr = wrByLabel[m.label];
+              const cls = wrClass(wr);
+              return `<span class=\"map-item ${cls}\" title=\"${m.label} · ${m.matches} MP${wr!=null?` · ${wr}% WR`:''}\">${label} ${m.matches}</span>`;
+            }).join(' ');
+            const tokensWR = bw.map(m => {
+              const label = abbr(m.label);
+              const wr = Math.round(m.wr);
+              const cls = wrClass(wr);
+              return `<span class=\"map-item ${cls}\" title=\"${m.label} · ${wr}% WR\">${label} ${wr}%</span>`;
+            }).join(' ');
+
             html += `
               <div class=\"player-card\"> 
                 <div class=\"player-header\">\n                <div class=\"player-name\"><span class=\"player-id-line-name\">${player.nickname}</span><span class=\"player-quick\">${player.elo} Lvl ${player.level} · K/D: ${player.kd || 'N/A'} · Win: ${winRate}%</span></div>
                   <div class=\"map-stats\">\n                  ${tokensMP ? `<div class=\"row\"><span class=\"label\">MP:</span><span class=\"val\">${tokensMP}</span></div>` : ''}\n                  ${tokensWR ? `<div class=\"row\"><span class=\"label\">WR:</span><span class=\"val\">${tokensWR}</span></div>` : ''}\n                </div>
                 </div>
-            const label = abbr(m.label);
-            const wr = Math.round(m.wr);
-            const cls = wrClass(wr);
-            return `<span class=\"map-item ${cls}\" title=\"${m.label} · ${wr}% WR\">${label} ${wr}%</span>`;
-          }).join(' ');
-
-          html += `
-            <div class=\"player-card\"> 
-              <div class=\"player-header\">
-                <div class=\"player-name\">${player.nickname}</div>
-                <div class=\"map-stats\">
-                  ${tokensMP ? `<div class=\"row\"><span class=\"label\">MP:</span><span class=\"val\">${tokensMP}</span></div>` : ''}
-                  ${tokensWR ? `<div class=\"row\"><span class=\"label\">WR:</span><span class=\"val\">${tokensWR}</span></div>` : ''}
-                </div>
-                  ${fmtMP ? `<div class=\"row\"><span class=\"label\">MP:</span><span class=\"val\">${fmtMP}</span></div>` : ''}
-                  ${fmtBW ? `<div class=\"row\"><span class=\"label\">WR:</span><span class=\"val\">${fmtBW}</span></div>` : ''}
-                </div>
+                ${metricRow('ADR / Win %', [
+                  chip('ADR10', fmt(adr10)),
+                  chip('ADR30', fmt(adr30)),
+                  chip('ADR100', fmt(adr100)),
+                  '<span class="chip sep">|</span>',
+                  '<span class="chip sub">Win %</span>',
+                  chip('W10', fmt(wr10)),
+                  chip('W30', fmt(wr30)),
+                  chip('W100', fmt(wr100))
+                ].join(''))}
+                ${metricRow('Elo / Nth', [
+                  chip('E10', elo10 != null ? elo10 : '—'),
+                  chip('E30', elo30 != null ? elo30 : '—'),
+                  chip('E100', elo100 != null ? elo100 : '—'),
+                  '<span class="chip sep">|</span>',
+                  '<span class="chip sub">Nth.</span>',
+                  chip('10th', d10),
+                  chip('30th', d30),
+                  chip('100th', d100)
+                ].join(''))}
+                ${metricRow('Games/day', [
+                  chip('7d', fmt(g7)),
+                  chip('30d', fmt(g30)),
+                  chip('90d', fmt(g90)),
+                  '<span class="chip sep">|</span>',
+                  '<span class="chip sub">Top Elo</span>',
+                  chip('All-Time', (player.top_elo_all_time != null ? player.top_elo_all_time : '—')),
+                  chip('Date', (player.top_elo_date || '—'))
+                ].join(''))}
               </div>
-              <div class=\"player-stats\"> 
-                <span class=\"elo\">${player.elo}</span>
-                <span class=\"level\">Lvl ${player.level}</span>
-                <span class=\"kd\">K/D: ${player.kd || 'N/A'}</span>
-                <span class=\"winrate\">Win: ${winRate}%</span>
-              </div>
-              ${metricRow('ADR / Win %', [
-                chip('ADR10', fmt(adr10)),
-                chip('ADR30', fmt(adr30)),
-                chip('ADR100', fmt(adr100)),
-                '<span class="chip sep">|</span>',
-                '<span class="chip sub">Win %</span>',
-                chip('W10', fmt(wr10)),
-                chip('W30', fmt(wr30)),
-                chip('W100', fmt(wr100))
-              ].join(''))}
-              ${metricRow('Elo / Nth', [
-                chip('E10', elo10 != null ? elo10 : '—'),
-                chip('E30', elo30 != null ? elo30 : '—'),
-                chip('E100', elo100 != null ? elo100 : '—'),
-                '<span class="chip sep">|</span>',
-                '<span class="chip sub">Nth.</span>',
-                chip('10th', d10),
-                chip('30th', d30),
-                chip('100th', d100)
-              ].join(''))}
-              ${metricRow('Games/day', [
-                chip('7d', fmt(g7)),
-                chip('30d', fmt(g30)),
-                chip('90d', fmt(g90)),
-                '<span class="chip sep">|</span>',
-                '<span class="chip sub">Top Elo</span>',
-                chip('All-Time', (player.top_elo_all_time != null ? player.top_elo_all_time : '—')),
-                chip('Date', (player.top_elo_date || '—'))
-              ].join(''))}
-            </div>
-          `;
+            `;
         }
       });
       html += '</div>';

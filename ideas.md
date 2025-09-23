@@ -1,3 +1,6 @@
 - Strongest map the last xxx/yyy???
 - Position on map x/y?
 - These two(THREE/FOUR) players PLAY THE SAME POSITION on THAT SPECIFIC MAP!
+- Kolla hur repeek etc. gör för att vara så snabba (Storage? Agressive on API Calls?)
+- Remove from player name row:  K/D: 0.63 · Win: 40%
+- Re-add styling to Elo and FC Level

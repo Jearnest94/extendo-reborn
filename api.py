@@ -45,6 +45,13 @@ class FaceitAPI:
         except Exception:
             pass
 
+        # Peak Elo cache
+        self.peak_cache_dir = os.path.join(base_dir, ".cache", "peak")
+        try:
+            os.makedirs(self.peak_cache_dir, exist_ok=True)
+        except Exception:
+            pass
+
     @staticmethod
     def _to_unix_seconds(value: int | float | str | None) -> int | None:
         """
@@ -322,22 +329,51 @@ class FaceitAPI:
         """
         FACEIT Web API (used by faceit.com):
         GET https://api.faceit.com/stats/v1/stats/time/users/{player_id}/games/{game_id}
-        Returns a JSON array where each element corresponds to a match for the user and includes fields like:
-         - 'date' (epoch ms)
-         - 'elo' (ELO value at time of that match)
-         - various compact stats (i*, c*), teamId, matchId, etc.
-
-        We'll return the list as-is (or empty list on error).
+        Observed to return a list of (date, elo, ...). Undocumented limits may cap length.
+        We attempt multiple strategies to retrieve as much history as possible:
+        - bare call (no params)
+        - large size/limit param
+        - simple pagination attempts using page/offset with a conservative page count
         """
         try:
-            url = f"https://api.faceit.com/stats/v1/stats/time/users/{player_id}/games/{game_id}"
-            resp = self.web.get(url, timeout=8)
-            if resp.status_code != 200:
-                return []
-            data = resp.json()
-            if isinstance(data, list):
-                return data
-            return []
+            base = f"https://api.faceit.com/stats/v1/stats/time/users/{player_id}/games/{game_id}"
+            def fetch(params: dict | None = None) -> list[dict]:
+                try:
+                    resp = self.web.get(base, params=params or {}, timeout=10)
+                    if resp.status_code != 200:
+                        return []
+                    data = resp.json()
+                    return data if isinstance(data, list) else []
+                except Exception:
+                    return []
+
+            # Collect pages with different strategies, then merge/dedup
+            collected: list[list[dict]] = []
+            # 1) bare
+            collected.append(fetch())
+            # 2) with large size/limit
+            for k in ("size", "limit"):
+                collected.append(fetch({k: 5000}))
+            # 3) paginate with page or offset (try a few pages conservatively)
+            for k in ("page", "offset"):
+                for p in range(0, 5):  # up to 5 pages to avoid abuse
+                    if k == "offset":
+                        params = {k: p * 1000, "size": 1000}
+                    else:
+                        params = {k: p, "size": 1000}
+                    lst = fetch(params)
+                    if not lst:
+                        break
+                    collected.append(lst)
+                    # Heuristic: if returned less than requested size, likely last page
+                    if len(lst) < params.get("size", 1000):
+                        break
+
+            # Merge all and dedup via existing merge helper
+            merged = []
+            for lst in collected:
+                merged = self._merge_elo_items(merged, lst)
+            return merged
         except Exception:
             return []
 
@@ -466,7 +502,7 @@ class FaceitAPI:
         items.sort(key=lambda it: int(it.get("date") or it.get("created_at") or it.get("updated_at") or 0), reverse=True)
         return items
 
-    def get_web_time_stats_cached(self, player_id: str, game_id: str = "cs2", ttl_seconds: int = 600, max_items: int = 500) -> list[dict]:
+    def get_web_time_stats_cached(self, player_id: str, game_id: str = "cs2", ttl_seconds: int = 600, max_items: int = 10000) -> list[dict]:
         """
         Return elo time-series using disk cache with TTL and merge.
         - If cache is fresh (updated_at within ttl_seconds), return cache.
@@ -487,6 +523,110 @@ class FaceitAPI:
             return merged
         # No web data; return whatever we have
         return cached.get("items", [])
+
+    # ---- Peak Elo via per-match stats fallback and caching ----
+    def _peak_cache_path(self, player_id: str) -> str:
+        return os.path.join(self.peak_cache_dir, f"{player_id}.json")
+
+    def _read_peak_cache(self, player_id: str) -> dict:
+        path = self._peak_cache_path(player_id)
+        try:
+            if os.path.exists(path):
+                import json
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    data.setdefault("updated_at", 0)
+                    return data
+        except Exception:
+            pass
+        return {"updated_at": 0}
+
+    def _write_peak_cache(self, player_id: str, peak_elo: int | None, peak_ts_ms: int | None):
+        path = self._peak_cache_path(player_id)
+        try:
+            import json, time
+            payload = {"updated_at": int(time.time()), "peak_elo": peak_elo, "peak_ts_ms": peak_ts_ms}
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+        except Exception:
+            pass
+
+    def _peak_elo_from_items(self, items: list[dict]) -> tuple[int | None, int | None]:
+        """Scan per-match stats items for the highest Elo-like value, return (elo, ts_ms)."""
+        best_e = None
+        best_ts = None
+        try:
+            for it in items:
+                s = it.get("stats", {}) if isinstance(it, dict) else {}
+                if not isinstance(s, dict):
+                    continue
+                # Timestamp from stats
+                ts = s.get("Match Finished At") or s.get("Match Finished At ") or s.get("played")
+                try:
+                    tsi = int(ts) if ts is not None else None
+                except Exception:
+                    tsi = None
+                # Find elo-like field
+                elo_val = None
+                for k, v in s.items():
+                    if isinstance(k, str) and "elo" in k.lower():
+                        try:
+                            elo_val = int(float(str(v).replace(",", ".")))
+                            break
+                        except Exception:
+                            continue
+                if elo_val is None:
+                    continue
+                # Normalize ts to ms
+                if tsi is not None and tsi < 10**12:
+                    tsi *= 1000
+                if best_e is None or elo_val > best_e or (elo_val == best_e and (best_ts is None or (tsi or 0) > (best_ts or 0))):
+                    best_e = elo_val
+                    best_ts = tsi
+        except Exception:
+            pass
+        return best_e, best_ts
+
+    def get_peak_elo_all_time(self, player_id: str, *, game_id: str = "cs2", ttl_seconds: int = 43200, max_pages: int = 30, page_size: int = 100) -> tuple[int | None, int | None]:
+        """Return true all-time peak Elo by combining web time-series peak with a paginated scan of per-match stats.
+        Caches result on disk with TTL; refreshes if stale or current elo likely exceeds cached peak.
+        Returns (peak_elo, peak_ts_ms).
+        """
+        import time
+        cached = self._read_peak_cache(player_id)
+        now = int(time.time())
+        if cached.get("updated_at", 0) and (now - int(cached["updated_at"])) <= max(ttl_seconds, 0):
+            return cached.get("peak_elo"), cached.get("peak_ts_ms")
+
+        # 1) From web time-series
+        web_items = self.get_web_time_stats_cached(player_id, game_id=game_id, ttl_seconds=600, max_items=10000)
+        web_peak_e, web_peak_ts = self._peak_elo_from_web(web_items)
+
+        # 2) From per-match stats (paginated scan)
+        best_e = web_peak_e
+        best_ts = web_peak_ts
+        offset = 0
+        pages = 0
+        while pages < max_pages:
+            page = self.get_player_matches_stats_list(player_id=player_id, game_id=game_id, offset=offset, limit=page_size)
+            if "error" in page:
+                break
+            items = page.get("items", [])
+            if not items:
+                break
+            e, ts = self._peak_elo_from_items(items)
+            if e is not None:
+                if best_e is None or e > best_e or (e == best_e and (best_ts is None or (ts or 0) > (best_ts or 0))):
+                    best_e = e
+                    best_ts = ts
+            if len(items) < page_size:
+                break
+            offset += page_size
+            pages += 1
+
+        self._write_peak_cache(player_id, best_e, best_ts)
+        return best_e, best_ts
 
     def _nth_match_date_from_history(self, items: list[dict], n: int) -> int | None:
         """Return epoch ms for the Nth most recent match using /players/{player_id}/history items."""
@@ -763,16 +903,16 @@ def get_players():
                     result["elo_30_games_ago"] = e30w
                 if e100w is not None:
                     result["elo_100_games_ago"] = e100w
-                # Peak Elo across available history
-                peak_elo, peak_ms = faceit._peak_elo_from_web(web_items)
-                if peak_elo is not None:
-                    result["top_elo_all_time"] = peak_elo
-                if peak_ms is not None:
-                    import datetime as _dt
-                    try:
-                        result["top_elo_date"] = _dt.datetime.utcfromtimestamp(int(peak_ms) / 1000).strftime('%Y-%m-%d')
-                    except Exception:
-                        pass
+            # True all-time peak Elo (web series + paginated fallback)
+            peak_elo, peak_ms = faceit.get_peak_elo_all_time(result["player_id"], game_id="cs2", ttl_seconds=43200)
+            if peak_elo is not None:
+                result["top_elo_all_time"] = peak_elo
+            if peak_ms is not None:
+                import datetime as _dt
+                try:
+                    result["top_elo_date"] = _dt.datetime.utcfromtimestamp(int(peak_ms) / 1000).strftime('%Y-%m-%d')
+                except Exception:
+                    pass
 
             recent_100 = faceit.get_player_matches_stats_list(player_id=result["player_id"], game_id="cs2", offset=0, limit=100)
             if "error" not in recent_100:
