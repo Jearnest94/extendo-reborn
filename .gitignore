@@ -3,6 +3,7 @@
 .github/
 __pycache__/
 swagger.json
+api-dumps/
 
 
 
