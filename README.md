@@ -1,7 +1,7 @@
 # Extendo Reborn - The Minimal Version
 
 ## What This Is
-4 files. 412 lines total. Does ONE thing: Shows FACEIT player stats in match rooms.
+4 files. ~420 lines total. Does ONE thing: Shows FACEIT player stats in match rooms.
 
 ## Files
 - `api.py` - Flask API with caching (113 lines)
@@ -14,9 +14,22 @@
 ### 1. Backend
 ```bash
 cd extendo-reborn
-pip install flask flask-cors requests
+pip install flask flask-cors requests python-dotenv
 export FACEIT_API_KEY=your_key_here
 python api.py
+```
+
+Windows (PowerShell):
+```pwsh
+cd extendo-reborn
+pip install flask flask-cors requests python-dotenv
+$env:FACEIT_API_KEY="your_key_here"
+python api.py
+```
+
+Or put your key in a local .env file (auto-loaded):
+```
+FACEIT_API_KEY=your_key_here
 ```
 
 ### 2. Chrome Extension
@@ -27,9 +40,11 @@ python api.py
 
 ## What It Does
 1. ✅ Detects FACEIT match rooms automatically
-2. ✅ Extracts player nicknames from page
+2. ✅ Fetches match players via the official FACEIT Data API
 3. ✅ Fetches basic stats (Elo, Level, K/D, Win Rate)
-4. ✅ Shows clean popup with stats
+4. ✅ ADR windows: last 10/30/100 matches + date when the Nth match occurred
+5. ✅ Activity: games/day over last 7d/30d/90d windows
+6. ✅ Shows clean popup with stats
 5. ✅ Works on any FACEIT match room page
 
 ## What It Doesn't Do
@@ -41,13 +56,7 @@ python api.py
 - ❌ No Docker
 
 ## The Point
-This does 80% of what users need in 5% of the code.
 Build THIS first. Add features later.
 
-## Next Steps (if needed)
-1. Add map-specific win rates
-2. Add player match history
-3. Add better error handling
-4. Add caching with Redis
-
-But only if users actually ask for it.
+## Next Steps
+1. ???

@@ -1,2 +1,8 @@
 .env
-.venv
+.venv/
+.github/
+__pycache__/
+swagger.json
+
+
+
