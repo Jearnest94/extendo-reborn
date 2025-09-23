@@ -189,8 +189,9 @@ function createStatsPanel(players, teams = null) {
     for (const p of players) if (p && p.nickname) byNick[p.nickname] = p;
 
     if (teams && teams.team1 && teams.team2) {
-      const t1name = teams.team1.name || 'Team 1';
-      const t2name = teams.team2.name || 'Team 2';
+  // headings removed to save space
+  const t1name = '';
+  const t2name = '';
       const t1nicks = ((teams.team1.players || []).map(p => p.nickname)).filter(Boolean);
       const t2nicks = ((teams.team2.players || []).map(p => p.nickname)).filter(Boolean);
       const t1 = t1nicks.map(n => byNick[n]).filter(Boolean).sort((a, b) => (b.elo || 0) - (a.elo || 0));
@@ -251,19 +252,14 @@ function createStatsPanel(players, teams = null) {
 
         return `
           <div class="player-card">
-              <div class="player-header">
-              <div class="player-name">${player.nickname}</div>
+            <div class="player-header">
+              <div class="player-name"><span class="player-id-line-name">${player.nickname}</span><span class="player-quick">${player.elo} Lvl ${player.level} · K/D: ${player.kd || 'N/A'} · Win: ${winRate}%</span></div>
               <div class="map-stats">
                 ${tokensMP ? `<div class="row"><span class="label">MP:</span><span class="val">${tokensMP}</span></div>` : ''}
                 ${tokensWR ? `<div class="row"><span class="label">WR:</span><span class="val">${tokensWR}</span></div>` : ''}
               </div>
             </div>
-            <div class="player-stats">
-              <span class="elo">${player.elo}</span>
-              <span class="level">Lvl ${player.level}</span>
-              <span class="kd">K/D: ${player.kd || 'N/A'}</span>
-              <span class="winrate">Win: ${winRate}%</span>
-            </div>
+            
             ${metricRow('ADR / Win %', [
               chip('ADR10', fmt(adr10)),
               chip('ADR30', fmt(adr30)),
@@ -287,14 +283,18 @@ function createStatsPanel(players, teams = null) {
             ${metricRow('Games/day', [
               chip('7d', fmt(g7)),
               chip('30d', fmt(g30)),
-              chip('90d', fmt(g90))
+              chip('90d', fmt(g90)),
+              '<span class="chip sep">|</span>',
+              '<span class="chip sub">Top Elo</span>',
+              chip('All-Time', (player.top_elo_all_time != null ? player.top_elo_all_time : '—')),
+              chip('Date', (player.top_elo_date || '—'))
             ].join(''))}
           </div>`;
       };
 
-      html += '<div class="teams-grid">';
-      html += `<div class="team-column"><div class="team-heading">${t1name}</div><div class="players-list">${t1.map(renderPlayerCard).join('')}</div></div>`;
-      html += `<div class="team-column"><div class="team-heading">${t2name}</div><div class="players-list">${t2.map(renderPlayerCard).join('')}</div></div>`;
+  html += '<div class="teams-grid">';
+  html += `<div class="team-column"><div class="players-list">${t1.map(renderPlayerCard).join('')}</div></div>`;
+  html += `<div class="team-column"><div class="players-list">${t2.map(renderPlayerCard).join('')}</div></div>`;
       html += '</div>';
     } else {
       // Fallback: sort and render in two-column generic grid
@@ -334,17 +334,11 @@ function createStatsPanel(players, teams = null) {
             if (w >= 70) return 'wr-great wr-bold';
             if (w >= 60) return 'wr-good wr-bold';
             if (w >= 50) return 'wr-mid';
-            return 'wr-bad';
-          };
-          const wrByLabel = Object.create(null);
-          for (const m of bw) if (m && m.label != null) wrByLabel[m.label] = Math.round(m.wr);
-          const tokensMP = mp.map(m => {
-            const label = abbr(m.label);
-            const wr = wrByLabel[m.label];
-            const cls = wrClass(wr);
-            return `<span class=\"map-item ${cls}\" title=\"${m.label} · ${m.matches} MP${wr!=null?` · ${wr}% WR`:''}\">${label} ${m.matches}</span>`;
-          }).join(' ');
-          const tokensWR = bw.map(m => {
+            html += `
+              <div class=\"player-card\"> 
+                <div class=\"player-header\">\n                <div class=\"player-name\"><span class=\"player-id-line-name\">${player.nickname}</span><span class=\"player-quick\">${player.elo} Lvl ${player.level} · K/D: ${player.kd || 'N/A'} · Win: ${winRate}%</span></div>
+                  <div class=\"map-stats\">\n                  ${tokensMP ? `<div class=\"row\"><span class=\"label\">MP:</span><span class=\"val\">${tokensMP}</span></div>` : ''}\n                  ${tokensWR ? `<div class=\"row\"><span class=\"label\">WR:</span><span class=\"val\">${tokensWR}</span></div>` : ''}\n                </div>
+                </div>
             const label = abbr(m.label);
             const wr = Math.round(m.wr);
             const cls = wrClass(wr);
@@ -392,7 +386,11 @@ function createStatsPanel(players, teams = null) {
               ${metricRow('Games/day', [
                 chip('7d', fmt(g7)),
                 chip('30d', fmt(g30)),
-                chip('90d', fmt(g90))
+                chip('90d', fmt(g90)),
+                '<span class="chip sep">|</span>',
+                '<span class="chip sub">Top Elo</span>',
+                chip('All-Time', (player.top_elo_all_time != null ? player.top_elo_all_time : '—')),
+                chip('Date', (player.top_elo_date || '—'))
               ].join(''))}
             </div>
           `;

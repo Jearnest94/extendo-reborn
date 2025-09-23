@@ -44,6 +44,9 @@ FACEIT_API_KEY=your_key_here
 3. ✅ Fetches basic stats (Elo, Level, K/D, Win Rate)
 4. ✅ Shows clean popup with stats
 5. ✅ Works on any FACEIT match room page
+6. ✅ Accurate historical Elo windows (E10/E30/E100) via web API time-series with on-disk cache
+7. ✅ Top maps (Most Played & Best WR) up to 7, with WR-based color/bold pairing across rows
+8. ✅ Peak Elo (All-Time) and the date achieved
 
 ## What It Doesn't Do
 - ❌ No demo parsing
@@ -73,7 +76,12 @@ FACEIT_API_KEY=your_key_here
 	matches, wins, kd,
 	adr_last_10, adr_last_30, adr_last_100,
 	date_10_games_ago, date_30_games_ago, date_100_games_ago, // YYYY-MM-DD (UTC)
-	games_per_day_7d, games_per_day_30d, games_per_day_90d
+	games_per_day_7d, games_per_day_30d, games_per_day_90d,
+	elo_10_games_ago, elo_30_games_ago, elo_100_games_ago,
+	top_maps_played: [{ label, matches, wr }...],
+	top_maps_wr: [{ label, matches, wr }...],
+	top_elo_all_time, // integer peak Elo observed
+	top_elo_date // YYYY-MM-DD (UTC)
 }
 ```
 

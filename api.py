@@ -375,6 +375,35 @@ class FaceitAPI:
         except Exception:
             return None
 
+    def _peak_elo_from_web(self, web_items: list[dict]) -> tuple[int | None, int | None]:
+        """Return (max_elo, when_ms) from FACEIT web time stats list.
+        If multiple entries share the max elo, prefer the most recent by date.
+        Date is returned as epoch milliseconds.
+        """
+        try:
+            peak_elo = None
+            peak_ts = None
+            for it in web_items:
+                if not isinstance(it, dict):
+                    continue
+                elo = it.get("elo")
+                dt = it.get("date") or it.get("created_at") or it.get("updated_at")
+                if elo is None or dt is None:
+                    continue
+                try:
+                    e = int(elo)
+                    ts = int(dt)
+                    if ts < 10**12:
+                        ts *= 1000
+                except Exception:
+                    continue
+                if peak_elo is None or e > peak_elo or (e == peak_elo and (peak_ts is None or ts > peak_ts)):
+                    peak_elo = e
+                    peak_ts = ts
+            return peak_elo, peak_ts
+        except Exception:
+            return None, None
+
     # ---- Disk cache helpers for Elo time-series ----
     def _elo_cache_path(self, player_id: str) -> str:
         safe_id = str(player_id)
@@ -734,6 +763,16 @@ def get_players():
                     result["elo_30_games_ago"] = e30w
                 if e100w is not None:
                     result["elo_100_games_ago"] = e100w
+                # Peak Elo across available history
+                peak_elo, peak_ms = faceit._peak_elo_from_web(web_items)
+                if peak_elo is not None:
+                    result["top_elo_all_time"] = peak_elo
+                if peak_ms is not None:
+                    import datetime as _dt
+                    try:
+                        result["top_elo_date"] = _dt.datetime.utcfromtimestamp(int(peak_ms) / 1000).strftime('%Y-%m-%d')
+                    except Exception:
+                        pass
 
             recent_100 = faceit.get_player_matches_stats_list(player_id=result["player_id"], game_id="cs2", offset=0, limit=100)
             if "error" not in recent_100:

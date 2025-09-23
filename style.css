@@ -60,7 +60,7 @@
   background: #2a2a2a;
   border-radius: 6px;
   padding: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   border-left: 3px solid #ff6900;
 }
 
@@ -79,7 +79,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .map-stats {
@@ -187,6 +187,8 @@
   border-radius: 4px;
 }
 .players-list { display: flex; flex-direction: column; gap: 8px; }
+/* tighten spacing between players */
+.players-list { gap: 6px; }
 
 /* collapsed state: show only header */
 .extendo-panel.collapsed .extendo-content {
@@ -203,7 +205,7 @@
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .metric-label {
@@ -253,4 +255,16 @@
   color: #fff;
   padding: 1px 4px;
   font-size: 11px;
+}
+
+/* Inline quick stats next to name */
+.player-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.player-id-line-name { font-weight: 600; font-size: 13px; color: #ff6900; }
+.player-quick {
+  font-size: 10px;
+  color: #bbb;
 }
