@@ -2,9 +2,10 @@
 
 .extendo-panel {
   position: fixed;
-  right: 20px;
+  left: 50%;
+  transform: translateX(-50%);
   bottom: 20px;
-  width: 66%;
+  width: min(1400px, 92vw);
   max-height: 66vh;
   overflow-y: scroll;
   background: #1a1a1a;
@@ -51,13 +52,14 @@
 }
 
 .extendo-content {
-  padding: 16px;
+  padding: 12px;
+  overflow-y: scroll;
 }
 
 .player-card {
   background: #2a2a2a;
   border-radius: 6px;
-  padding: 12px;
+  padding: 10px;
   margin-bottom: 8px;
   border-left: 3px solid #ff6900;
 }
@@ -69,10 +71,52 @@
 
 .player-name {
   font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 8px;
+  font-size: 13px;
+  margin-bottom: 0;
   color: #ff6900;
 }
+.player-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.map-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: right;
+  font-size: 11px;
+  line-height: 1.1;
+  color: #ccc;
+}
+
+.map-stats .row { white-space: normal; word-break: keep-all; }
+.map-stats .label { color: #888; margin-right: 6px; }
+/* Render values as tokenized spans so MP and WR can share styling */
+.map-stats .val {
+  color: #ddd;
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+/* Individual map token */
+.map-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0; /* keep compact, only color text */
+  border-radius: 3px;
+}
+/* WR buckets */
+.wr-unknown { color: #aaa; }
+.wr-bad { color: #f44336; }
+.wr-mid { color: #d0d0d0; }
+.wr-good { color: #8BC34A; }
+.wr-great { color: #4CAF50; }
+.wr-bold { font-weight: 700; }
 
 .player-stats {
   display: flex;
@@ -119,4 +163,94 @@
 /* Make sure we don't interfere with FACEIT's styles */
 .extendo-panel * {
   box-sizing: border-box;
+}
+.players-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+}
+
+/* Teams grid: two columns with headings */
+.teams-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.team-column { display: flex; flex-direction: column; gap: 8px; }
+.team-heading {
+  font-weight: 600;
+  color: #ddd;
+  background: #242424;
+  border: 1px solid #333;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+.players-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* collapsed state: show only header */
+.extendo-panel.collapsed .extendo-content {
+  display: none;
+}
+
+/* reduce header cursor to indicate clickability */
+.extendo-header { cursor: pointer; }
+.extendo-header .extendo-close { cursor: pointer; }
+
+/* Metric rows & chips for clearer presentation */
+.metric-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.metric-label {
+  min-width: 86px;
+  color: #bbb;
+  font-size: 12px;
+}
+
+.metric-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.chip.sep {
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  color: #666;
+}
+
+.chip.sub {
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  color: #bbb;
+  font-size: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.chip .chip-k {
+  background: #444;
+  color: #ddd;
+  padding: 1px 4px;
+  font-size: 11px;
+}
+
+.chip .chip-v {
+  background: #222;
+  color: #fff;
+  padding: 1px 4px;
+  font-size: 11px;
 }

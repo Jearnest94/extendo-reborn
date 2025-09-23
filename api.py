@@ -27,6 +27,42 @@ class FaceitAPI:
             "Accept": "application/json"
         })
 
+        # Public Web API session (used by faceit.com frontend). No auth header.
+        # Some endpoints expose per-match Elo time series we need for historical values.
+        self.web = requests.Session()
+        self.web.headers.update({
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://www.faceit.com/",
+            "Origin": "https://www.faceit.com",
+        })
+
+        # On-disk cache for Elo time-series to reduce web calls and support offline
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.elo_cache_dir = os.path.join(base_dir, ".cache", "elo")
+        try:
+            os.makedirs(self.elo_cache_dir, exist_ok=True)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _to_unix_seconds(value: int | float | str | None) -> int | None:
+        """
+        Normalize a timestamp value to UNIX seconds.
+        Accepts seconds or milliseconds; detects by magnitude (> 10^12 => ms).
+        Returns None if input is falsy or cannot be parsed.
+        """
+        if value is None:
+            return None
+        try:
+            iv = int(value)
+        except Exception:
+            return None
+        # If it's clearly in milliseconds, convert to seconds
+        if iv > 10**12:
+            return iv // 1000
+        return iv
+
     def _parse_response(self, resp):
         """Return (ok, data). On error, include auth_error if token invalid."""
         if resp.status_code == 200:
@@ -117,10 +153,15 @@ class FaceitAPI:
         """
         try:
             params = {"game": game_id, "offset": offset, "limit": limit}
+            # FACEIT docs: 'from'/'to' are UNIX time (seconds). Convert if ms provided.
             if from_ms is not None:
-                params["from"] = int(from_ms)
+                fsec = self._to_unix_seconds(from_ms)
+                if fsec is not None:
+                    params["from"] = fsec
             if to_ms is not None:
-                params["to"] = int(to_ms)
+                tsec = self._to_unix_seconds(to_ms)
+                if tsec is not None:
+                    params["to"] = tsec
             resp = self.session.get(
                 f"https://open.faceit.com/data/v4/players/{player_id}/history",
                 params=params,
@@ -180,6 +221,244 @@ class FaceitAPI:
         except Exception:
             return None
 
+    def _win_rate_from_items(self, items: list[dict], n: int) -> float | None:
+        """Compute win rate percentage over the most recent n items from per-match stats list.
+        Tries to detect a win/lose indicator from stats fields like 'Result', 'Result with overtime', 'Outcome'.
+        """
+        try:
+            # Build (timestamp, is_win) list
+            rows: list[tuple[int | None, bool]] = []
+            for it in items:
+                s = it.get("stats", {}) if isinstance(it, dict) else {}
+                if not isinstance(s, dict):
+                    continue
+                # detect win keywords
+                def _is_win_val(v):
+                    if v is None:
+                        return None
+                    sv = str(v).strip().lower()
+                    if sv in ("win", "won", "victory", "1", "true", "yes"):
+                        return True
+                    if sv in ("loss", "lose", "defeat", "0", "false", "no"):
+                        return False
+                    # If contains word win
+                    if "win" in sv or "victor" in sv:
+                        return True
+                    if "loss" in sv or "defeat" in sv or "lose" in sv:
+                        return False
+                    return None
+                is_win = None
+                for key in ("Result", "Result with overtime", "Outcome", "Match Result", "Win"):
+                    if key in s:
+                        is_win = _is_win_val(s.get(key))
+                        if is_win is not None:
+                            break
+                # Fallback: some payloads might have 'i18n_result' etc. Skip if unknown
+                if is_win is None:
+                    continue
+                ts = s.get("Match Finished At") or s.get("Match Finished At ") or s.get("played")
+                try:
+                    tsi = int(ts) if ts is not None else None
+                except Exception:
+                    tsi = None
+                rows.append((tsi, bool(is_win)))
+            if not rows:
+                return None
+            if any(r[0] is not None for r in rows):
+                rows = [r for r in rows if r[0] is not None]
+                rows.sort(key=lambda x: x[0], reverse=True)
+            slice_rows = rows[:n]
+            if not slice_rows:
+                return None
+            wins = sum(1 for _, w in slice_rows if w)
+            return (wins / len(slice_rows)) * 100.0
+        except Exception:
+            return None
+
+    def _elo_at_n_from_items(self, items: list[dict], n: int) -> int | None:
+        """Attempt to retrieve the player's Elo value at the Nth most recent match from per-match stats items.
+        This relies on a per-item 'stats' key whose name includes 'elo' (case-insensitive). If absent, return None.
+        """
+        try:
+            rows: list[tuple[int | None, int]] = []
+            for it in items:
+                s = it.get("stats", {}) if isinstance(it, dict) else {}
+                if not isinstance(s, dict):
+                    continue
+                # find an elo-like field
+                elo_val = None
+                for k, v in s.items():
+                    if isinstance(k, str) and "elo" in k.lower():
+                        try:
+                            elo_val = int(float(str(v).replace(",", ".")))
+                            break
+                        except Exception:
+                            continue
+                if elo_val is None:
+                    continue
+                ts = s.get("Match Finished At") or s.get("Match Finished At ") or s.get("played")
+                try:
+                    tsi = int(ts) if ts is not None else None
+                except Exception:
+                    tsi = None
+                rows.append((tsi, elo_val))
+            if not rows:
+                return None
+            if any(r[0] is not None for r in rows):
+                rows = [r for r in rows if r[0] is not None]
+                rows.sort(key=lambda x: x[0], reverse=True)
+            if len(rows) < n:
+                idx = len(rows) - 1
+            else:
+                idx = n - 1
+            if idx < 0:
+                return None
+            return rows[idx][1]
+        except Exception:
+            return None
+
+    @lru_cache(maxsize=1024)
+    def get_web_time_stats(self, player_id: str, game_id: str = "cs2") -> list[dict]:
+        """
+        FACEIT Web API (used by faceit.com):
+        GET https://api.faceit.com/stats/v1/stats/time/users/{player_id}/games/{game_id}
+        Returns a JSON array where each element corresponds to a match for the user and includes fields like:
+         - 'date' (epoch ms)
+         - 'elo' (ELO value at time of that match)
+         - various compact stats (i*, c*), teamId, matchId, etc.
+
+        We'll return the list as-is (or empty list on error).
+        """
+        try:
+            url = f"https://api.faceit.com/stats/v1/stats/time/users/{player_id}/games/{game_id}"
+            resp = self.web.get(url, timeout=8)
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            if isinstance(data, list):
+                return data
+            return []
+        except Exception:
+            return []
+
+    def _elo_at_n_from_web(self, web_items: list[dict], n: int) -> int | None:
+        """Get Elo at the Nth most recent match from FACEIT web time stats list.
+        Sorts by 'date' desc (epoch ms). Returns None if missing or insufficient.
+        """
+        try:
+            rows: list[tuple[int, int]] = []
+            for it in web_items:
+                if not isinstance(it, dict):
+                    continue
+                elo = it.get("elo")
+                dt = it.get("date") or it.get("created_at") or it.get("updated_at")
+                if elo is None or dt is None:
+                    continue
+                try:
+                    elo_i = int(elo)
+                    ts = int(dt)
+                    # normalize to ms if needed
+                    if ts < 10**12:
+                        ts *= 1000
+                    rows.append((ts, elo_i))
+                except Exception:
+                    continue
+            if not rows:
+                return None
+            rows.sort(key=lambda x: x[0], reverse=True)
+            idx = n - 1
+            if idx < 0:
+                return None
+            if idx >= len(rows):
+                idx = len(rows) - 1
+            return rows[idx][1]
+        except Exception:
+            return None
+
+    # ---- Disk cache helpers for Elo time-series ----
+    def _elo_cache_path(self, player_id: str) -> str:
+        safe_id = str(player_id)
+        return os.path.join(self.elo_cache_dir, f"{safe_id}.json")
+
+    def _read_elo_cache(self, player_id: str) -> dict:
+        path = self._elo_cache_path(player_id)
+        try:
+            if os.path.exists(path):
+                import json
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    data.setdefault("updated_at", 0)
+                    data.setdefault("items", [])
+                    return data
+        except Exception:
+            pass
+        return {"updated_at": 0, "items": []}
+
+    def _write_elo_cache(self, player_id: str, items: list[dict]):
+        path = self._elo_cache_path(player_id)
+        try:
+            import json, time
+            payload = {"updated_at": int(time.time()), "items": items}
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+        except Exception:
+            pass
+
+    def _merge_elo_items(self, a: list[dict], b: list[dict]) -> list[dict]:
+        """Merge two lists of web elo items, dedup by matchId (fallback date), keep latest by date."""
+        def key_of(it: dict):
+            mid = it.get("matchId")
+            if not mid and isinstance(it.get("_id"), dict):
+                mid = it["_id"].get("matchId")
+            if mid:
+                return ("m", str(mid))
+            dt = it.get("date") or it.get("created_at") or it.get("updated_at") or 0
+            elo = it.get("elo") or 0
+            return ("d", f"{dt}:{elo}")
+
+        merged = {}
+        for lst in (a or []), (b or []):
+            for it in lst:
+                if not isinstance(it, dict):
+                    continue
+                k = key_of(it)
+                # choose the one with newer date
+                old = merged.get(k)
+                if old is None:
+                    merged[k] = it
+                else:
+                    old_dt = old.get("date") or old.get("created_at") or old.get("updated_at") or 0
+                    new_dt = it.get("date") or it.get("created_at") or it.get("updated_at") or 0
+                    if int(new_dt or 0) >= int(old_dt or 0):
+                        merged[k] = it
+        items = list(merged.values())
+        # sort desc by date
+        items.sort(key=lambda it: int(it.get("date") or it.get("created_at") or it.get("updated_at") or 0), reverse=True)
+        return items
+
+    def get_web_time_stats_cached(self, player_id: str, game_id: str = "cs2", ttl_seconds: int = 600, max_items: int = 500) -> list[dict]:
+        """
+        Return elo time-series using disk cache with TTL and merge.
+        - If cache is fresh (updated_at within ttl_seconds), return cache.
+        - Else fetch web list; if success, merge into cache, prune to max_items, write and return.
+        - If fetch fails, return cache (even if stale) to support offline.
+        """
+        import time
+        cached = self._read_elo_cache(player_id)
+        now = int(time.time())
+        if cached.get("updated_at", 0) and (now - int(cached["updated_at"])) <= max(ttl_seconds, 0):
+            return cached.get("items", [])
+        web_list = self.get_web_time_stats(player_id, game_id)
+        if web_list:
+            merged = self._merge_elo_items(cached.get("items", []), web_list)
+            if len(merged) > max_items:
+                merged = merged[:max_items]
+            self._write_elo_cache(player_id, merged)
+            return merged
+        # No web data; return whatever we have
+        return cached.get("items", [])
+
     def _nth_match_date_from_history(self, items: list[dict], n: int) -> int | None:
         """Return epoch ms for the Nth most recent match using /players/{player_id}/history items."""
         try:
@@ -191,7 +470,10 @@ class FaceitAPI:
                 if ts is None:
                     continue
                 try:
-                    stamps.append(int(ts))
+                    # Normalize to seconds for consistency
+                    s = self._to_unix_seconds(ts)
+                    if s is not None:
+                        stamps.append(s)
                 except Exception:
                     continue
             if not stamps:
@@ -210,13 +492,14 @@ class FaceitAPI:
         """
         try:
             import time
-            now_ms = int(time.time() * 1000)
-            from_ms = now_ms - days * 24 * 60 * 60 * 1000
+            # Use seconds for history params
+            now_s = int(time.time())
+            from_s = now_s - days * 24 * 60 * 60
             total = 0
             offset = 0
             limit = 100
             while True:
-                page = self.get_player_history(player_id, game_id=game_id, offset=offset, limit=limit, from_ms=from_ms, to_ms=now_ms)
+                page = self.get_player_history(player_id, game_id=game_id, offset=offset, limit=limit, from_ms=from_s, to_ms=now_s)
                 if "error" in page:
                     # On error, break to avoid infinite loop
                     break
@@ -381,16 +664,77 @@ def get_players():
             overall = next((s for s in stats["segments"] if s.get("mode") == "5v5"), {})
             if overall and "stats" in overall:
                 stats_data = overall["stats"]
+                # Prefer 'Average K/D Ratio' for KD; 'K/D Ratio' often represents an aggregated scaled value in lifetime payloads
+                kd_val = stats_data.get("Average K/D Ratio")
+                if kd_val is None:
+                    kd_val = stats_data.get("K/D Ratio")
+                try:
+                    kd_val = float(kd_val)
+                except Exception:
+                    kd_val = 0.0
                 result.update({
                     "matches": int(stats_data.get("Matches", 0)),
                     "wins": int(stats_data.get("Wins", 0)),
-                    "kd": float(stats_data.get("K/D Ratio", 0)),
+                    "kd": kd_val,
                     "hs_percent": float(stats_data.get("Headshots %", 0)),
                     "avg_kills": float(stats_data.get("Average Kills per Round", 0))
                 })
 
+            # Compute top maps (most played and best win rate) from map segments
+            try:
+                map_rows = []
+                for seg in stats.get("segments", []):
+                    if not isinstance(seg, dict):
+                        continue
+                    # Only Map segments for 5v5 mode
+                    if str(seg.get("type", "")).lower() != "map":
+                        continue
+                    if str(seg.get("mode", "")).lower() != "5v5":
+                        continue
+                    sdat = seg.get("stats", {})
+                    if not isinstance(sdat, dict):
+                        continue
+                    label = seg.get("label") or seg.get("name") or ""
+                    if not label:
+                        continue
+                    # parse matches and win rate
+                    matches_s = sdat.get("Matches") or sdat.get("Total Matches") or 0
+                    wr_s = sdat.get("Win Rate %") or 0
+                    try:
+                        matches_i = int(str(matches_s).split(".")[0])
+                    except Exception:
+                        matches_i = 0
+                    try:
+                        wr_f = float(str(wr_s).replace(",", "."))
+                    except Exception:
+                        wr_f = 0.0
+                    # Skip maps with zero matches
+                    if matches_i <= 0:
+                        continue
+                    map_rows.append({"label": label, "matches": matches_i, "wr": wr_f})
+                if map_rows:
+                    most_played = sorted(map_rows, key=lambda r: (r["matches"], r["wr"]), reverse=True)[:7]
+                    best_wr = sorted(map_rows, key=lambda r: (r["wr"], r["matches"]), reverse=True)[:7]
+                    result["top_maps_played"] = most_played
+                    result["top_maps_wr"] = best_wr
+            except Exception:
+                pass
+
         # Enrich with ADR last 10/30/100 and dates for nth matches using per-match stats endpoint
         try:
+            # Prefer robust Elo history from cached web time stats (if available)
+            web_items = faceit.get_web_time_stats_cached(result["player_id"], "cs2", ttl_seconds=600, max_items=800)
+            if web_items:
+                e10w = faceit._elo_at_n_from_web(web_items, 10)
+                e30w = faceit._elo_at_n_from_web(web_items, 30)
+                e100w = faceit._elo_at_n_from_web(web_items, 100)
+                if e10w is not None:
+                    result["elo_10_games_ago"] = e10w
+                if e30w is not None:
+                    result["elo_30_games_ago"] = e30w
+                if e100w is not None:
+                    result["elo_100_games_ago"] = e100w
+
             recent_100 = faceit.get_player_matches_stats_list(player_id=result["player_id"], game_id="cs2", offset=0, limit=100)
             if "error" not in recent_100:
                 items = recent_100.get("items", [])
@@ -403,6 +747,29 @@ def get_players():
                     result["adr_last_30"] = round(adr30, 2)
                 if adr100 is not None:
                     result["adr_last_100"] = round(adr100, 2)
+                # win rate over recent windows
+                wr10 = faceit._win_rate_from_items(items, 10)
+                wr30 = faceit._win_rate_from_items(items, 30)
+                wr100 = faceit._win_rate_from_items(items, 100)
+                if wr10 is not None:
+                    result["win_rate_last_10"] = round(wr10, 2)
+                if wr30 is not None:
+                    result["win_rate_last_30"] = round(wr30, 2)
+                if wr100 is not None:
+                    result["win_rate_last_100"] = round(wr100, 2)
+                # Fallback Elo via per-match stats if web time stats failed
+                if "elo_10_games_ago" not in result or result.get("elo_10_games_ago") is None:
+                    e10 = faceit._elo_at_n_from_items(items, 10)
+                    if e10 is not None:
+                        result["elo_10_games_ago"] = e10
+                if "elo_30_games_ago" not in result or result.get("elo_30_games_ago") is None:
+                    e30 = faceit._elo_at_n_from_items(items, 30)
+                    if e30 is not None:
+                        result["elo_30_games_ago"] = e30
+                if "elo_100_games_ago" not in result or result.get("elo_100_games_ago") is None:
+                    e100 = faceit._elo_at_n_from_items(items, 100)
+                    if e100 is not None:
+                        result["elo_100_games_ago"] = e100
             # Derive the Nth match dates from the authoritative history endpoint
             history_100 = faceit.get_player_history(player_id=result["player_id"], game_id="cs2", offset=0, limit=100)
             if "error" not in history_100:
@@ -412,9 +779,11 @@ def get_players():
                 d100 = faceit._nth_match_date_from_history(hitems, 100)
                 # Convert ms epoch to ISO date (YYYY-MM-DD)
                 import datetime as _dt
-                def _to_date(ms):
+                def _to_date(ts_seconds):
                     try:
-                        return _dt.datetime.utcfromtimestamp(ms/1000).strftime('%Y-%m-%d') if ms else None
+                        if not ts_seconds:
+                            return None
+                        return _dt.datetime.utcfromtimestamp(int(ts_seconds)).strftime('%Y-%m-%d')
                     except Exception:
                         return None
                 result["date_10_games_ago"] = _to_date(d10)
