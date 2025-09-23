@@ -1,9 +1,13 @@
 # Extendo Reborn - The Minimal Version
 
 ## What This Is
-4 files. ~420 lines total. Does ONE thing: Shows FACEIT player stats in match rooms.
+4 files. 412 lines total. Does ONE thing: Shows FACEIT player stats in match rooms.
 
 ## Files
+- `api.py` - Flask API with caching (113 lines)
+- `content.js` - Chrome extension logic (169 lines) 
+- `manifest.json` - Extension config (14 lines)
+- `style.css` - Basic styling (116 lines)
 - `api.py` - Flask API with caching (113 lines)
 - `content.js` - Chrome extension logic (169 lines) 
 - `manifest.json` - Extension config (14 lines)
@@ -59,4 +63,28 @@ FACEIT_API_KEY=your_key_here
 Build THIS first. Add features later.
 
 ## Next Steps
-1. ???
+1. Minimal knobs (env var) for API host
+2. Optional: cache-busting/expiry
+
+## API Response (minimal)
+`POST /players` request body:
+
+```
+{ "nicknames": ["player1", "player2"] }
+```
+
+`200 OK` response (per player fields):
+
+```
+{
+	nickname, player_id, elo, level, avatar, country,
+	matches, wins, kd,
+	adr_last_10, adr_last_30, adr_last_100,
+	date_10_games_ago, date_30_games_ago, date_100_games_ago, // YYYY-MM-DD (UTC)
+	games_per_day_7d, games_per_day_30d, games_per_day_90d
+}
+```
+
+## Links
+[compressing cs2 demos](https://healeycodes.com/compressing-cs2-demos)
+[demoinfocs-golang](https://github.com/markus-wa/demoinfocs-golang)
