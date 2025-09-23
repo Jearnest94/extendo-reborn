@@ -83,15 +83,12 @@ class FaceitAPI:
         Returns a dict { 'items': [...], 'start': n, 'end': m }
 
         Notes per official docs:
-        - 'from'/'to' expect epoch milliseconds of "items.stats.Match Finished At".
-        - limit max is 100.
+        - Endpoint supports pagination via 'offset' and 'limit'.
+        - Response items include per-match player_stats keys which are game-defined (not enumerated);
+          for CS2 these typically include 'ADR'.
         """
         try:
             params = {"offset": offset, "limit": limit}
-            if from_ms is not None:
-                params["from"] = int(from_ms)
-            if to_ms is not None:
-                params["to"] = int(to_ms)
             resp = self.session.get(
                 f"https://open.faceit.com/data/v4/players/{player_id}/games/{game_id}/stats",
                 params=params,
@@ -110,10 +107,43 @@ class FaceitAPI:
         except Exception as e:
             return {"error": str(e)}
 
+    @lru_cache(maxsize=1024)
+    def get_player_history(self, player_id: str, *, game_id: str = "cs2", offset: int = 0, limit: int = 100, from_ms: int | None = None, to_ms: int | None = None):
+        """
+        Call Data API: GET /players/{player_id}/history
+        Query params: game (required), from/to (epoch ms, optional), offset, limit
+        Returns a dict { 'items': [...], 'start': n, 'end': m }
+        Each item includes fields like 'match_id', 'finished_at' (epoch ms), etc.
+        """
+        try:
+            params = {"game": game_id, "offset": offset, "limit": limit}
+            if from_ms is not None:
+                params["from"] = int(from_ms)
+            if to_ms is not None:
+                params["to"] = int(to_ms)
+            resp = self.session.get(
+                f"https://open.faceit.com/data/v4/players/{player_id}/history",
+                params=params,
+                timeout=8,
+            )
+            ok, data = self._parse_response(resp)
+            if ok:
+                if not isinstance(data, dict):
+                    return {"items": [], "start": 0, "end": 0}
+                data.setdefault("items", [])
+                data.setdefault("start", offset)
+                # Many list endpoints also return 'end' in body; if not, synthesize it
+                data.setdefault("end", offset + len(data["items"]))
+                return data
+            return {"error": f"FACEIT Data API {data.get('status')}: {data.get('error')}", "auth": data.get("auth_error", False)}
+        except Exception as e:
+            return {"error": str(e)}
+
     def _avg_adr_from_items(self, items: list[dict], n: int) -> float | None:
         """
         Compute average ADR from the most recent n matches in items.
-        Items are expected to be in descending recency, but we sort by 'Match Finished At' just in case.
+        Items are expected to be in descending recency. When timestamps are present as stats fields,
+        we sort by them; otherwise we assume the API returns newest-first.
         """
         try:
             # Extract (timestamp, ADR)
@@ -121,8 +151,15 @@ class FaceitAPI:
             for it in items:
                 s = it.get("stats", {}) if isinstance(it, dict) else {}
                 adr_s = s.get("ADR")
-                ts = s.get("Match Finished At") or s.get("Match Finished At ")
+                # Prefer explicit timestamp if exposed in stats; fall back to None
+                ts = s.get("Match Finished At") or s.get("Match Finished At ") or s.get("played")
                 if adr_s is None or ts is None:
+                    # If no timestamp in stats, still consider ADR but use a decreasing counter to keep order
+                    try:
+                        adr = float(str(adr_s).replace(",", "."))
+                        pairs.append((None, adr))
+                    except Exception:
+                        continue
                     continue
                 try:
                     adr = float(str(adr_s).replace(",", "."))
@@ -132,7 +169,10 @@ class FaceitAPI:
                     continue
             if not pairs:
                 return None
-            pairs.sort(key=lambda x: x[0], reverse=True)
+            # If timestamps exist, sort by ts desc; otherwise keep input order
+            if any(p[0] is not None for p in pairs):
+                pairs = [p for p in pairs if p[0] is not None]
+                pairs.sort(key=lambda x: x[0], reverse=True)
             slice_vals = [adr for _, adr in pairs[:n]]
             if not slice_vals:
                 return None
@@ -140,33 +180,33 @@ class FaceitAPI:
         except Exception:
             return None
 
-    def _nth_match_date(self, items: list[dict], n: int) -> int | None:
-        """Return epoch ms for the Nth most recent match (e.g., n=10 for 10 games ago)."""
+    def _nth_match_date_from_history(self, items: list[dict], n: int) -> int | None:
+        """Return epoch ms for the Nth most recent match using /players/{player_id}/history items."""
         try:
-            matches = []
+            stamps = []
             for it in items:
-                s = it.get("stats", {}) if isinstance(it, dict) else {}
-                ts = s.get("Match Finished At") or s.get("Match Finished At ")
+                ts = None
+                if isinstance(it, dict):
+                    ts = it.get("finished_at") or it.get("ended_at") or it.get("started_at")
                 if ts is None:
                     continue
                 try:
-                    matches.append(int(ts))
+                    stamps.append(int(ts))
                 except Exception:
                     continue
-            if not matches:
+            if not stamps:
                 return None
-            matches.sort(reverse=True)
-            if len(matches) < n:
-                # If fewer than n matches, use the oldest available
-                return matches[-1]
-            return matches[n - 1]
+            stamps.sort(reverse=True)
+            if len(stamps) < n:
+                return stamps[-1]
+            return stamps[n - 1]
         except Exception:
             return None
 
     def count_matches_in_window(self, player_id: str, *, days: int, game_id: str = "cs2") -> int:
         """
-        Count matches within the last `days` days using the per-match stats endpoint with from/to filters.
-        Paginates until all matches are counted or no more results.
+        Count matches within the last `days` days using the documented player history endpoint
+        with from/to time filters. Paginates until all matches are counted or no more results.
         """
         try:
             import time
@@ -176,7 +216,7 @@ class FaceitAPI:
             offset = 0
             limit = 100
             while True:
-                page = self.get_player_matches_stats_list(player_id, game_id=game_id, offset=offset, limit=limit, from_ms=from_ms, to_ms=now_ms)
+                page = self.get_player_history(player_id, game_id=game_id, offset=offset, limit=limit, from_ms=from_ms, to_ms=now_ms)
                 if "error" in page:
                     # On error, break to avoid infinite loop
                     break
@@ -357,15 +397,19 @@ def get_players():
                 adr10 = faceit._avg_adr_from_items(items, 10)
                 adr30 = faceit._avg_adr_from_items(items, 30)
                 adr100 = faceit._avg_adr_from_items(items, 100)
-                d10 = faceit._nth_match_date(items, 10)
-                d30 = faceit._nth_match_date(items, 30)
-                d100 = faceit._nth_match_date(items, 100)
                 if adr10 is not None:
                     result["adr_last_10"] = round(adr10, 2)
                 if adr30 is not None:
                     result["adr_last_30"] = round(adr30, 2)
                 if adr100 is not None:
                     result["adr_last_100"] = round(adr100, 2)
+            # Derive the Nth match dates from the authoritative history endpoint
+            history_100 = faceit.get_player_history(player_id=result["player_id"], game_id="cs2", offset=0, limit=100)
+            if "error" not in history_100:
+                hitems = history_100.get("items", [])
+                d10 = faceit._nth_match_date_from_history(hitems, 10)
+                d30 = faceit._nth_match_date_from_history(hitems, 30)
+                d100 = faceit._nth_match_date_from_history(hitems, 100)
                 # Convert ms epoch to ISO date (YYYY-MM-DD)
                 import datetime as _dt
                 def _to_date(ms):
