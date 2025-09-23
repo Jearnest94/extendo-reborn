@@ -165,7 +165,7 @@ function createStatsPanel(players) {
           <div class="player-card">
             <div class="player-name">${player.nickname}</div>
             <div class="player-stats">
-              <span class="elo">⭐ ${player.elo}</span>
+              <span class="elo">${player.elo}</span>
               <span class="level">Lvl ${player.level}</span>
               <span class="kd">K/D: ${player.kd || 'N/A'}</span>
               <span class="winrate">Win: ${winRate}%</span>
