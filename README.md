@@ -56,31 +56,11 @@ FACEIT_API_KEY=your_key_here
 - ❌ No Docker
 
 ## The Point
-This does 80% of what users need in 5% of the code.
 Build THIS first. Add features later.
 
 ## Next Steps
-1. Minimal knobs (env var) for API host
-2. Optional: cache-busting/expiry
+1. ???
 
-## API Response (minimal)
-`POST /players` request body:
-
-```
-{ "nicknames": ["player1", "player2"] }
-```
-
-`200 OK` response (per player fields):
-
-```
-{
-	nickname, player_id, elo, level, avatar, country,
-	matches, wins, kd,
-	adr_last_10, adr_last_30, adr_last_100,
-	date_10_games_ago, date_30_games_ago, date_100_games_ago, // YYYY-MM-DD (UTC)
-	games_per_day_7d, games_per_day_30d, games_per_day_90d
-}
-```
 
 ## Links
 [compressing cs2 demos](https://healeycodes.com/compressing-cs2-demos)
