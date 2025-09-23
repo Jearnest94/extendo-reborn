@@ -1,7 +1,7 @@
 # Extendo Reborn - The Minimal Version
 
 ## What This Is
-4 files. ~420 lines total. Does ONE thing: Shows FACEIT player stats in match rooms.
+4 files. 412 lines total. Does ONE thing: Shows FACEIT player stats in match rooms.
 
 ## Files
 - `api.py` - Flask API with caching (113 lines)
