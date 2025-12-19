@@ -81,7 +81,8 @@ Build THIS first. Add features later.
 	matches, wins, kd,
 	adr_last_10, adr_last_30, adr_last_100,
 	date_10_games_ago, date_30_games_ago, date_100_games_ago, // YYYY-MM-DD (UTC)
-	games_per_day_7d, games_per_day_30d, games_per_day_90d
+	games_per_day_7d, games_per_day_30d, games_per_day_90d,
+	games_per_hour_7d, games_per_hour_30d, games_per_hour_90d
 }
 ```
 

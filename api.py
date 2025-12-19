@@ -388,6 +388,10 @@ def get_players():
             result["games_per_day_7d"] = round(c7 / 7.0, 2)
             result["games_per_day_30d"] = round(c30 / 30.0, 2)
             result["games_per_day_90d"] = round(c90 / 90.0, 2)
+            # Games per hour (24 hours per day)
+            result["games_per_hour_7d"] = round(c7 / (7.0 * 24), 3)
+            result["games_per_hour_30d"] = round(c30 / (30.0 * 24), 3)
+            result["games_per_hour_90d"] = round(c90 / (90.0 * 24), 3)
         except Exception:
             pass
         
