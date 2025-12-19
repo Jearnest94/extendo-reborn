@@ -161,6 +161,9 @@ function createStatsPanel(players) {
             const g7 = player.games_per_day_7d != null ? player.games_per_day_7d : '—';
             const g30 = player.games_per_day_30d != null ? player.games_per_day_30d : '—';
             const g90 = player.games_per_day_90d != null ? player.games_per_day_90d : '—';
+            const h7 = player.games_per_hour_7d != null ? player.games_per_hour_7d : '—';
+            const h30 = player.games_per_hour_30d != null ? player.games_per_hour_30d : '—';
+            const h90 = player.games_per_hour_90d != null ? player.games_per_hour_90d : '—';
         html += `
           <div class="player-card">
             <div class="player-name">${player.nickname}</div>
@@ -182,6 +185,11 @@ function createStatsPanel(players) {
                   <span class="gpd">GPD 7d: ${g7}</span>
                   <span class="gpd">30d: ${g30}</span>
                   <span class="gpd">90d: ${g90}</span>
+                </div>
+                <div class="player-stats small">
+                  <span class="gph">GPH 7d: ${h7}</span>
+                  <span class="gph">30d: ${h30}</span>
+                  <span class="gph">90d: ${h90}</span>
                 </div>
           </div>
         `;
